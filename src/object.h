@@ -1,25 +1,19 @@
 #pragma once
 
+#include "material.h"
 #include "ray.h"
 #include "vector.h"
 
 struct Object {
-    Vector3f albedo;
-    Vector3f emittance;
-    void setMaterial(Vector3f Albedo, Vector3f Emittance) {
-        albedo = Albedo;
-        emittance = Emittance;
-    }
+    Material material;
     virtual Vector3f getNormal(const Vector3f &) const = 0;
     virtual float intersect(const Ray &) const = 0;
 };
 
 struct Plane : Object {
     Vector3f position, normal;
-    Plane(Vector3f Position, Vector3f Normal, Vector3f baseColor, Vector3f emittance) {
-        position = Position;
-        normal = Normal;
-        this->setMaterial(baseColor, emittance);
+    Plane(Vector3f Position, Vector3f Normal, Material material) : position(Position), normal(Normal) {
+        this->material = material;
     }
     Vector3f getNormal(const Vector3f &x) const { return normal; }
     float intersect(const Ray &ray) const {
@@ -36,11 +30,9 @@ struct Plane : Object {
 struct Sphere : Object {
     float radius, radius2, iradius;
     Vector3f position;
-    Sphere(Vector3f Center, float Radius, Vector3f albedo, Vector3f emittance) {
-        position = Center;
-        radius = Radius;
+    Sphere(Vector3f Center, float Radius, Material material) : position(Center), radius(Radius) {
         radius2 = Radius * Radius;
-        this->setMaterial(albedo, emittance);
+        this->material = material;
     }
     Vector3f getNormal(const Vector3f &x) const { return (x - position) / radius; }
     float intersect(const Ray &ray) const {

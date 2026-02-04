@@ -31,6 +31,21 @@ bool RaySphereIntersection(const Vector3f &ro, const Vector3f &rd, const float &
     return true;
 }
 
+Vector3f ComputeTransmission(const Ray &ray, const float &t0, const float &t1) {
+    Vector3f betaR(0.00000530482236632, 0.0000123952627965, 0.0000302618720618);
+    Vector3f betaM(0.000021);
+    float opticalDepthR = 0;
+    float opticalDepthM = 0;
+    float ds = (t1 - t0) / 8.0F;
+    for (int i = 0; i < 8; i++) {
+        Vector3f samplePosition = ray.origin + ray.direction * ds * ((float)i + 0.5F);
+        float height = Length(samplePosition) - 6360e3;
+        opticalDepthR += exp(-height / 7994.0F) * ds;
+        opticalDepthM += exp(-height / 1200.0F) * ds;
+    }
+    return Exp(-betaR * opticalDepthR - betaM * opticalDepthM);
+}
+
 Vector3f ComputeAtmosphereicScattering(Ray ray, Atmosphere atmosphere) {
     float t0 = 0, t1 = 0;
     if (!RaySphereIntersection(ray.origin, ray.direction, 6420e3, t0, t1) || t1 < 0.0F) {

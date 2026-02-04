@@ -22,7 +22,7 @@ constexpr float HR = 7994;
 constexpr float HM = 1200;
 const Vector3f betaR(0.00000530482236632, 0.0000123952627965, 0.0000302618720618);
 const Vector3f betaM(0.000021);
-const Vector3f sd = Normalize(Vector3f(0, 1, -2));
+const Vector3f sd = Normalize(Vector3f(2, 0.5, 0.5));
 const Atmosphere atmosphere(gr, ar, HR, HM, betaR, betaM, sd);
 
 
@@ -58,6 +58,18 @@ struct Scene {
     }
 };
 
+bool RaySphereIntersection(const Ray &ray, const float &r, float &t0, float &t1) {
+    Vector3f L = -ray.origin;
+    float tc = Dot(L, ray.direction);
+    double d2 = Dot(L, L) - tc * tc;
+    double r2 = r * r;
+    if (d2 > r2) return false;
+    float t1c = std::sqrt(r2 - d2);
+    t0 = tc - t1c;
+    t1 = tc + t1c;
+    return true;
+}
+
 Vector3f UniformHemisphereSample(Vector3f n) {
     float r = sqrt(random) * 1.57079632679F;
     float t = random * 6.28318530718F;
@@ -68,6 +80,10 @@ Vector3f UniformHemisphereSample(Vector3f n) {
     return Normalize(T * x + B * y + n * z);
 }
 
+float t0, t1;
+Ray sunRay = Ray(Vector3f(0, 6360e3 + 500, 0), sd);
+bool x = RaySphereIntersection(sunRay, 6420e3, t0, t1);
+Vector3f sunT = ComputeTransmission(sunRay, 0.0, t1);
 
 Vector3f PathTrace(const Ray &ray, const Scene &scene, const Vector3f const* const*skyRadianceMap, const int &depth) {
     if (depth > 4) return Vector3f(0);
@@ -75,12 +91,6 @@ Vector3f PathTrace(const Ray &ray, const Scene &scene, const Vector3f const* con
     Intersection intersection = scene.intersect(ray);
 
     if (intersection.object == nullptr) {
-        // Ray aViewRay;
-        // aViewRay.origin = Vector3f(0, gr + 500.0f, 0);
-        // aViewRay.direction = ray.direction;
-        // Vector3f sky = ComputeAtmosphereicScattering(aViewRay, atmosphere);
-        // return Max(sky, 0.0F);
-
         float x = ray.direction.x;
         float y = ray.direction.z;
         float z = -ray.direction.y;
@@ -89,16 +99,23 @@ Vector3f PathTrace(const Ray &ray, const Scene &scene, const Vector3f const* con
         if (X < 0 || X >= skyWidth || Y < 0 || Y >= skyHeight) return Vector3f(0);
         return skyRadianceMap[X][Y];
     }
-    Vector3f emittance = intersection.object->emittance;
+
+    Material material = intersection.object->material;
+
     Vector3f hitPoint = ray.origin + ray.direction * intersection.t;
     Vector3f normal = intersection.object->getNormal(hitPoint);
+
+    Ray shadowRay = Ray(hitPoint + normal * 0.001, sd);
+    float sunVis = scene.intersect(shadowRay).object == nullptr ? 1.0f : 0.0f;
+    float sunNdotL = std::max(0.0f, Dot(normal, sd));
+
     Vector3f incomingDirection = UniformHemisphereSample(normal);
     Ray newRay = Ray(hitPoint, incomingDirection);
     Vector3f incoming = PathTrace(newRay, scene, skyRadianceMap, depth + 1);
-    const float p = 0.159154943092;  // 1/2pi
+    const float pdf = 0.159154943092;  // 1/2pi
     float cosTheta = Dot(normal, incomingDirection);
-    Vector3f BRDF = intersection.object->albedo * 0.318309886184;  // 1/pi
-    return emittance + BRDF * incoming * cosTheta / p;
+    Vector3f BRDF = material.albedo * 0.318309886184;  // 1/pi
+    return material.emittance + BRDF * sunT * sunVis * 2.0 * sunNdotL + BRDF * incoming * cosTheta / pdf;
 }
 
 void ComputeSkyRadianceMap(Vector3f **&skyRadianceMap, const int &width, const int &height) {
@@ -128,16 +145,25 @@ int main() {
     }
     ComputeSkyRadianceMap(skyRadianceMap, skyWidth, skyHeight);
 
-    const int width = 500, height = 500, spp = 128;
+    const int width = 500, height = 500, spp = 500;
 
     Vector3i **img = new Vector3i *[width];
     for (int i = 0; i < width; i++) {
         img[i] = new Vector3i[height];
     }
 
+    Material white (Vector3f(0.8, 0.8, 0.8), 1, 0, Vector3f(0));
+    Material red   (Vector3f(0.8, 0.05, 0.05), 1, 0, Vector3f(0));
+    Material green (Vector3f(0.05, 0.8, 0.05), 1, 0, Vector3f(0));
+    Material blue  (Vector3f(0.05, 0.05, 0.8), 1, 0, Vector3f(0));
+    Material black (Vector3f(0.05, 0.05, 0.05), 1, 0, Vector3f(0));
+    Material emmit (Vector3f(0.8, 0.8, 0.8), 1, 0, Vector3f(0.5));
+    Material orange (Vector3f(0.05, 0.8, 0.05), 1, 0, Vector3f(0));
+
+
     Scene scene;
-    scene.add(new Plane(Vector3f(0, -1, 0), Vector3f(0, 1, 0), Vector3f(1), Vector3f(0)));
-    scene.add(new Sphere(Vector3f(0, 0, -1), 1, Vector3f(1), Vector3f(0)));
+    scene.add(new Plane(Vector3f(0, -1, 0), Vector3f(0, 1, 0), white));
+    scene.add(new Sphere(Vector3f(0, 0, -2), 1, green));
 
     clock_t startTime = clock();
 
@@ -156,8 +182,8 @@ int main() {
                 Vector3f color = PathTrace(viewRay, scene, skyRadianceMap, 0);
                 fragColor = fragColor + color / spp;
             }
-            fragColor = fragColor * 1.0F;
-            fragColor = Saturate(Vector3f(1) - Exp(-fragColor));
+            fragColor = fragColor * 0.7f;
+            fragColor = Saturate(Vector3f(1.0) - Exp(-fragColor));
             fragColor = Pow(fragColor, 1.0F / 2.2F);
             img[x][y] = Vector3i(fragColor * 255.0F);
         }
